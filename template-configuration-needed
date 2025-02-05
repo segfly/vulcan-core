@@ -1,0 +1,2 @@
+This repo was created from a template.
+After configuring the pyproject.toml, remove the 'template-configuration-needed' file project root and rebuild the devcontainer.

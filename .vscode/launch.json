@@ -1,0 +1,23 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python Debugger: Unit Tests",
+            "purpose": ["debug-test"],
+            "type": "debugpy", // Use with "native" test adapter
+//            "type": "python", // Use with https://github.com/kondratyev-nv/vscode-python-test-adapter
+            "request": "launch",
+            "program": "${file}",
+            "console": "internalConsole",
+            "internalConsoleOptions": "openOnSessionStart",
+            "env": {
+                "DOPPLER_ENV_LOGGING": "1",
+                "PYTEST_ADDOPTS": "-n 0 --no-cov"
+            },
+            "justMyCode": false
+        }
+    ]
+}

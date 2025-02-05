@@ -1,0 +1,99 @@
+{
+    "[python]": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit",
+            "source.fixAll": "explicit"
+        },
+        "editor.formatOnType": true,
+        // "rewrap.onSave": true, // not in released version, has issues with commented code
+        "rewrap.autoWrap.enabled": true
+    },
+
+    "python.experiments.enabled": true,
+    "python.experiments.optInto": ["pythonTestAdapter"],
+
+    "python.analysis.supportDocstringTemplate": true,
+    "python.analysis.includeAliasesFromUserFiles": true,
+    "python.analysis.autoImportCompletions": true,
+    "python.analysis.autoFormatStrings": true,
+    "python.analysis.packageIndexDepths": [ // Default depth is 1 and to not include all symbols
+        {
+            "name": "",
+            "depth": 10,
+            "includeAllSymbols": true
+        }
+    ],
+
+    "terminal.integrated.env.linux": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+    },
+
+    "testing.automaticallyOpenPeekView": "never",
+    "testing.automaticallyOpenTestResults": "neverOpen",
+    "testing.openTesting": "neverOpen",
+    
+    "python.testing.pytestEnabled": true,
+    "python.testing.unittestEnabled": false, 
+
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+
+    "jupyter.notebookFileRoot": "${workspaceFolder}",
+    "jupyter.interactiveWindow.textEditor.executeSelection": true,
+
+    "notebook.formatOnSave.enabled": true,
+    "notebook.output.wordWrap": true,
+    "notebook.defaultFormatter": "charliermarsh.ruff",
+    "notebook.codeActionsOnSave": {
+        "notebook.source.organizeImports": "explicit",
+        "notebook.source.fixAll": "explicit"
+    },
+
+    "yaml.schemas": {
+        "https://squidfunk.github.io/mkdocs-material/schema.json": "mkdocs.yml"
+    },
+    "yaml.customTags": [ 
+        "!ENV scalar",
+        "!ENV sequence",
+        "!relative scalar",
+        "tag:yaml.org,2002:python/name:material.extensions.emoji.to_svg",
+        "tag:yaml.org,2002:python/name:material.extensions.emoji.twemoji",
+        "tag:yaml.org,2002:python/name:pymdownx.superfences.fence_code_format",
+        "tag:yaml.org,2002:python/object/apply:pymdownx.slugs.slugify mapping"
+    ],
+
+    "runOnSave.commands": [
+        {
+            "match": ".*\\.py$",
+            "command": "testing.runAll",
+            "runIn": "vscode",
+            "runningStatusMessage": "Running tests", // Messages not yet supported for vscode cmds
+            "finishStatusMessage": "Test run completed"
+        }
+    ],
+
+    "files.exclude": {
+        ".coverage": true,
+        ".cache": true,
+        ".mypy_cache": true,
+        ".pytest_cache": true,
+        ".venv": true,
+        ".ruff_cache": true,
+        "**/__pycache__": true
+    },
+
+    "editor.rulers": [
+        120
+    ],
+
+    // Settings to prevent suggestions from getting in the way, requires ctrl+space to trigger
+    "editor.quickSuggestions": {
+        "other": "off"
+    },
+    "editor.suggest.localityBonus": true,
+    "editor.inlineSuggest.showToolbar": "onHover",
+
+    "github.copilot.chat.generateTests.codeLens": true,
+    "github.copilot.nextEditSuggestions.enabled": true,
+}

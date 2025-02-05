@@ -1,0 +1,24 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "mkdocs serve",
+        "options": {
+          "cwd": "${workspaceFolder}/docs"
+        },
+        "detail": "Starts mkdocs live server.",
+        "type": "process",
+        "isBackground": true,
+        "command": "${workspaceFolder}/.venv/bin/python",   
+        "args": ["-m", "mkdocs", "serve"],     
+        "group": "test",        
+        "presentation": {
+          "reveal": "silent",
+          "panel": "shared",
+        },
+      }
+    ]
+  }
+  

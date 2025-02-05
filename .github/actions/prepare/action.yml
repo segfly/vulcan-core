@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2025 Latchfield Technologies http://latchfield.com
+name: 'Prepare the Python environment'
+description: 'Prepares the Python environment leveraging cache where possible'
+
+runs:
+  using: "composite"
+  steps:    
+    - name: Configure system
+      id: config
+      shell: bash
+      run: |
+        # Adjust permissions for action/cache
+        if command -v sudo &> /dev/null; then
+          sudo mkdir -p /root/.local/bin
+          sudo find /root/ -type d -exec chmod a+rx {} \;
+          sudo chmod -R a+r /root/.local/bin          
+          sudo chown -R $(whoami) /opt/pipx/venvs /opt/pipx_bin
+        fi            
+
+        # Ensure pipx and poetry are on the PATH
+        echo "/root/.local/bin" >> "$GITHUB_PATH"
+        echo "${GITHUB_WORKSPACE}/.venv/bin" >> "$GITHUB_PATH"
+
+        # Create report directores
+        mkdir -p ./reports/tests
+        mkdir -p ./reports/security
+        mkdir -p ./reports/analysis
+
+        # Lookup required Poetry version
+        echo "poetry_version=$(grep -Po 'requires-poetry\s*=\s*"\K[^0-9]*\K[^"]*' pyproject.toml)" >> $GITHUB_OUTPUT
+
+    - name: Configure pipx cache
+      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 #v4.2.3
+      id: pipx
+      with:
+        path: |
+          /root/.local/pipx/venvs
+          /root/.local/bin/poetry
+          /opt/pipx/venvs
+          /opt/pipx_bin            
+        key: pipx-poetry-${{ steps.config.outputs.poetry_version }}
+
+    - name: Install Poetry with pipx
+      if: ${{ steps.pipx.outputs.cache-hit != 'true' }}
+      shell: bash
+      run: |
+        pipx install poetry==${{ steps.config.outputs.poetry_version }}
+
+    - name: Setup Python
+      uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 #v5.5.0
+      with:
+        python-version-file: 'pyproject.toml'
+        cache: 'poetry'
+
+    - name: Install Python dependencies
+      shell: bash
+      run: |
+        python --version
+        poetry --version
+        poetry install --no-ansi --all-extras

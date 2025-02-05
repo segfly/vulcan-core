@@ -1,0 +1,274 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2025 Latchfield Technologies http://latchfield.com
+name: CI Build
+run-name: Build of ${{ github.ref_name }} by ${{ github.actor }}
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_call:
+    inputs:
+      skip_cache:
+        description: 'Skip Commit SHA Cache'
+        type: boolean
+  workflow_dispatch:
+    inputs:
+      skip_cache:
+        description: 'Skip Commit SHA Cache'
+        type: boolean
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' || github.event.action == 'pull_request' }}
+
+jobs:
+  prebuild:
+    name: Prebuild Checks
+    runs-on: ubuntu-22.04
+    concurrency:
+      group: prebuild-${{ github.sha }}
+    outputs:
+      tests-cache-hit: ${{ steps.tests.outputs.cache-hit && !inputs.skip_cache }}    
+      security-cache-hit: ${{ steps.security.outputs.cache-hit && !inputs.skip_cache }}    
+      analysis-cache-hit: ${{ steps.analysis.outputs.cache-hit && !inputs.skip_cache }}
+      build-cache-hit: ${{ steps.build.outputs.cache-hit && !inputs.skip_cache }}
+    steps:
+      - name: Lookup test result cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 #v4.2.3
+        id: tests
+        with:
+          lookup-only: true
+          path: ./reports/tests/*
+          key: tests-${{ github.sha }}
+
+      - name: Lookup security scan result cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 #v4.2.3
+        id: security
+        with:
+          lookup-only: true
+          path: ./reports/security/*
+          key: security-${{ github.sha }}
+
+      - name: Lookup static analysis result cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 #v4.2.3
+        id: analysis
+        with:
+          lookup-only: true
+          path: ./reports/analysis/*
+          key: analysis-${{ github.sha }}          
+     
+      - name: Lookup build cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 #v4.2.3
+        id: build
+        with:
+          lookup-only: true
+          path: |
+            ./dist     
+          key: build-${{ github.sha }}
+
+      - name: Evaluate cache status
+        id: cache
+        run: |
+          if [[ "${{ steps.tests.outputs.cache-hit }}" == "true" ]]; then
+            echo "::notice::Skipping testing job due to cached test report for this commit."
+          fi
+
+          if [[ "${{ steps.security.outputs.cache-hit }}" == "true" ]]; then
+          echo "::notice::Skipping security check job due to cached security report for this commit."
+          fi
+
+          if [[ "${{ steps.analysis.outputs.cache-hit }}" == "true" ]]; then
+          echo "::notice::Skipping static analysis job due to cached analysis report for this commit."
+          fi
+
+          if [[ "${{ steps.build.outputs.cache-hit }}" == "true" ]]; then
+            echo "::notice::Skipping build job due to cached build result for this commit."
+          fi
+
+          echo "fully_cached=${{ steps.tests.outputs.cache-hit && steps.security.outputs.cache-hit && steps.analysis.outputs.cache-hit }}" >> $GITHUB_OUTPUT
+
+      - name: Checkout codebase
+        if: ${{ !steps.cache.outputs.fully_cached || inputs.skip_cache }}
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
+
+      # Cache warmup for parallel dependent jobs
+      - name: Prepare the Python environment
+        if: ${{ !steps.cache.outputs.fully_cached || inputs.skip_cache }}
+        uses: ./.github/actions/prepare
+
+  tests:
+    name: Functional Tests
+    runs-on: ubuntu-22.04
+    needs: prebuild
+    if: ${{ needs.prebuild.outputs.tests-cache-hit != 'true' }}
+    concurrency:
+      group: tests-${{ github.sha }}
+    env:
+      CI: true
+    steps:
+      - name: Fetch test result cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 #v4.2.3
+        id: tests
+        with:
+          path: ./reports/tests/*
+          key: tests-${{ github.sha }}
+
+      - name: Report on cache
+        if: ${{ steps.tests.outputs.cache-hit }}
+        run: |
+          echo "::notice::Skipping testing steps due to cached test report for this commit."
+
+      - name: Checkout codebase
+        if: ${{ !steps.tests.outputs.cache-hit }}
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
+
+      - name: Prepare the Python environment
+        if: ${{ !steps.tests.outputs.cache-hit }}
+        uses: ./.github/actions/prepare
+
+      - name: Run unit tests
+        if: ${{ !steps.tests.outputs.cache-hit && github.event_name == 'pull_request'}}
+        shell: bash
+        run: poetry run pytest --cov-report lcov:./reports/tests/coverage.lcov
+
+      # For security and cost reasons, don't run integration tests on PRs
+      - name: Run unit and integration tests
+        if: ${{ !steps.tests.outputs.cache-hit && github.event_name != 'pull_request' }}
+        shell: bash        
+        run: poetry run pytest --cov-report lcov:./reports/tests/coverage.lcov --plus_integration
+
+  security:
+    name: Security Checks
+    runs-on: ubuntu-22.04
+    needs: prebuild
+    if: ${{ needs.prebuild.outputs.security-cache-hit != 'true' }}
+    concurrency:
+      group: security-${{ github.sha }}
+    steps:
+      - name: Fetch security scan result cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 #v4.2.3
+        id: security
+        with:
+          path: ./reports/security/*
+          key: security-${{ github.sha }}
+
+      - name: Report on cache
+        if: ${{ steps.security.outputs.cache-hit }}
+        run: |
+          echo "::notice::Skipping security check steps due to cached security report for this commit."
+
+      - name: Checkout codebase
+        if: ${{ !steps.security.outputs.cache-hit }}
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
+
+      - name: Prepare the Python environment
+        if: ${{ !steps.security.outputs.cache-hit }}
+        uses: ./.github/actions/prepare
+
+      - name: Check for outdated project dependencies
+        if: ${{ !steps.security.outputs.cache-hit }}
+        run: poetry show -n --outdated --latest --top-level --without=dev,test  | tee ./reports/security/outdated-dependencies.txt | awk 'NF {print "::warning title=Outdated Dependency::" $0}'
+        shell: bash
+
+      - name: Check for outdated dev/test dependencies
+        if: ${{ !steps.security.outputs.cache-hit }}
+        run: poetry show -n --outdated --latest --top-level --only=dev,test | tee ./reports/security/outdated-dependencies-dev.txt | awk 'NF {print "::notice title=Outdated dev/test Dependency::" $0}'
+        shell: bash        
+
+      # TODO: Need to find a replacement for poetry audit plugin
+      # - name: Check for CVEs in dependencies
+      #   if: ${{ !steps.security.outputs.cache-hit }}
+      #   run: poetry audit -n | tee ./reports/security/package-audit.txt
+      #   shell: bash
+
+      - name: Run security checks
+        if: ${{ !steps.security.outputs.cache-hit }}
+        run: poetry run bandit -r src | tee ./reports/security/code-scan.txt
+        shell: bash        
+        
+  analysis:
+    name: Static Analysis
+    runs-on: ubuntu-22.04
+    needs: prebuild
+    if: ${{ needs.prebuild.outputs.analysis-cache-hit != 'true' }}
+    concurrency:
+      group: analysis-${{ github.sha }}
+    steps:
+      - name: Fetch static analysis result cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 #v4.2.3
+        id: analysis
+        with:
+          path: ./reports/analysis/*
+          key: analysis-${{ github.sha }}
+
+      - name: Report on cache
+        if: ${{ steps.analysis.outputs.cache-hit }}
+        run: |
+          echo "::notice::Skipping static analysis steps due to cached analysis report for this commit."
+
+      - name: Checkout codebase
+        if: ${{ !steps.analysis.outputs.cache-hit }}
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
+
+      - name: Prepare the Python environment
+        if: ${{ !steps.analysis.outputs.cache-hit }}
+        uses: ./.github/actions/prepare        
+
+      - name: Check for unused dependencies
+        if: ${{ !steps.analysis.outputs.cache-hit }}
+        run: poetry run deptry ./src | tee ./reports/analysis/unused-dependencies.txt
+        shell: bash
+
+      - name: Perform Ruff rule checks
+        if: ${{ !steps.analysis.outputs.cache-hit }}
+        run: poetry run ruff check | tee ./reports/analysis/code-rules.txt
+        shell: bash
+
+      - name: Perform Pyright typing checks
+        if: ${{ !steps.analysis.outputs.cache-hit }}
+        env:
+          PYRIGHT_PYTHON_PYLANCE_VERSION: latest-release  
+        run: poetry run pyright ./src | tee ./reports/analysis/typing.txt
+        shell: bash
+
+  build:
+    name: Build Package
+    runs-on: ubuntu-22.04
+    needs: [prebuild, tests, security, analysis]
+    if: ${{ !failure() && !cancelled() && needs.prebuild.outputs.build-cache-hit != 'true' }}
+    concurrency:
+      group: build-${{ github.sha }}
+    steps:
+      # If a version tag, cache packages for possible deploy
+      - name: Fetch build cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 #v4.2.3
+        id: build
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        with:
+          path: |
+            ./dist     
+          key: build-${{ github.sha }}
+
+      - name: Report on cache
+        if: ${{ steps.build.outputs.cache-hit }}
+        run: |
+          echo "::notice::Skipping build steps due to cached build result for this commit."
+
+      - name: Checkout codebase
+        if: ${{ !steps.build.outputs.cache-hit }}
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 #v4.2.2
+
+      - name: Prepare the Python environment
+        if: ${{ !steps.build.outputs.cache-hit }}
+        uses: ./.github/actions/prepare
+
+      - name: Build packages
+        if: ${{ !steps.build.outputs.cache-hit }}
+        shell: bash
+        run: poetry build
+
+      - name: Check package description
+        if: ${{ !steps.build.outputs.cache-hit }}
+        run: poetry run twine check --strict ./dist/*

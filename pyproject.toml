@@ -1,0 +1,100 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2025 Latchfield Technologies http://latchfield.com
+[project]
+dynamic = ["version", "dependencies", "classifiers"]
+name = "CHANGEME"
+license="AGPL-3.0-or-later"
+description = "CHANGEME"
+readme = "README.md"
+authors = []
+keywords = []
+
+# Can't support py3.13 until transitive numpy dependency from langchain-chroma on numpy 1.26.4 has a whl or is updated
+requires-python = ">=3.12,<3.13"
+
+[project.urls]
+homepage = "https://CHANGEME"
+repository = "https://CHANGEME"
+documentation = "https://CHANGEME"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+package-mode = true # Change package-mode as needed once the template instance is configured
+version = "0.0.0" # Update manually, or use plugin
+packages = [{ include = "changeme", from="src" }] # Change to the package name
+requires-poetry = "~2.1.2"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Operating System :: OS Independent"
+]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "B", "Q", "N", "UP",
+          "SIM", "YTT", "ASYNC", "S", "A", "COM", "FBT",
+          "C4", "DTZ", "T10", "EM", "DJ", "EXE", "ISC",
+          "ICN", "LOG", "G", "INP", "PIE", "PT", "RSE",
+          "SLF", "TCH", "INT", "PD", "TRY", "PERF1", "PERF4",
+          "FURB", "RUF"]
+
+# Recommended ignore list: https://docs.astral.sh/ruff/formatter/#conflicting-lint-rules
+ignore = ["E111", "E114", "E117", "D206", "D300", "Q000",
+          "Q001", "Q002", "Q003", "COM812", "COM819",
+          "ISC001", "ISC002", "S311"]
+
+# Ignore some rules for tests
+# https://github.com/astral-sh/ruff/issues/4368#issue-1705468153
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "ARG", "FBT"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+
+[tool.pyright]
+typeCheckingMode = "basic"
+reportUndefinedVariable = false
+
+[tool.pytest.ini_options]
+minversion = "8.3"
+required_plugins = ["pytest-cov"]
+pythonpath = ["src"]
+addopts = "-rA --showlocals --color=yes --tb=short -q --cov-report=html --cov=src"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.coverage.run]
+source = ["src"]
+branch = true # Could be an issue if true for native decoration: https://github.com/microsoft/vscode-python/issues/24156
+
+[tool.poetry.requires-plugins]
+# Not working unless installed via pipx
+#poetry-plugin-up = "0.9.0"
+
+[tool.poetry.dependencies]
+
+[project.optional-dependencies]
+
+[tool.poetry.group.test.dependencies]
+pytest = "~8.3.5"
+pytest-asyncio = "~0.26.0"
+pytest-timeout = "~2.3.1"
+pytest-cov = "~6.1.0"
+pytest-xdist = "~3.6.1"
+hypothesis = "~6.130.6"
+doppler-env = "~0.3.1"
+
+[tool.poetry.group.dev.dependencies]
+bandit = "~1.8.3"
+deptry = "~0.23.0"
+ipykernel = "~6.29.5"
+ruff = "~0.11.2"
+pyright = {extras = ["nodejs"], version = "~1.1.398"}
+twine = "~6.1.0"

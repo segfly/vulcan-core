@@ -1,0 +1,60 @@
+# Please see the documentation for more information:
+# https://docs.github.com/github/administering-a-repository/configuration-options-for-dependency-updates
+# https://containers.dev/guide/dependabot
+
+version: 2
+updates:
+  # Devcontainers
+  - package-ecosystem: devcontainers
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      devcontainers-minor:
+        update-types: [minor, patch]
+      devcontainers-security:
+        patterns: ["*"]
+        applies-to: security-updates
+        
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions-minor:
+        update-types: [minor, patch]
+      actions-security:
+        patterns: ["*"]
+        applies-to: security-updates
+
+  # Dockerfiles
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      dockerfiles-minor:
+        update-types: [minor, patch]
+        applies-to: version-updates
+      dockerfiles-security:
+        patterns: ["*"]
+        applies-to: security-updates
+
+  # Python
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      python-minor:        
+        dependency-type: production
+        applies-to: version-updates
+        update-types: [minor, patch]
+      python-dev-minor:
+        dependency-type: development
+        applies-to: version-updates
+        update-types: [minor, patch]
+      python-security:
+        patterns: ["*"]
+        applies-to: security-updates

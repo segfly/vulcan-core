@@ -1,0 +1,39 @@
+# Ignore all by default
+*
+
+# Include key directories and children
+!.devcontainer/
+!.devcontainer/**
+!.github/
+!.github/**
+!.vscode/
+!.vscode/**
+!src/
+!src/**
+!docs/
+!docs/**
+!tests/
+!tests/**
+!dockerfiles/
+!dockerfiles/**
+
+# Include key files
+!template-configuration-needed
+!.env
+!.gitignore
+!.editorconfig
+!.actrc
+!README.md
+!LICENSE
+!NOTICE
+!CODE_OF_CONDUCT.md
+!CONTRIBUTING.md
+!SECURITY.md
+!Dockerfile
+!pyproject.toml
+!poetry.lock
+!poetry.toml
+!mkdocs.yml
+
+# Ignore these after the recusive include
+__pycache__
