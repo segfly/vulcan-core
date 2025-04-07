@@ -17,7 +17,8 @@ My PR resolves #
 
 ### Optional Checklist Items
 <!-- These are highly appreciated items, but not everyone may find them easy to perform. -->
-- [ ] I have squashed my commit history to keep the history tidy.
+- [ ] I have created a dedicated branch for this PR in my fork to avoid accidental updates to this PR.
+- [ ] I have squashed my commit history on my branch to keep the history tidy.
 - [ ] I have used git `--signoff` to record my agreement with the developers certificate of origin.
 
 ## Summary of Contribution
