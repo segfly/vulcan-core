@@ -8,11 +8,11 @@ import re
 from abc import abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum, auto
+from functools import lru_cache
 from string import Formatter
 from typing import TYPE_CHECKING
 
 from langchain.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
 from vulcan_core.actions import ASTProcessor
@@ -21,6 +21,11 @@ from vulcan_core.models import ConditionCallable, DeclaresFacts, Fact, FactHandl
 if TYPE_CHECKING:  # pragma: no cover - not used at runtime
     from langchain_core.language_models import BaseChatModel
     from langchain_core.runnables import RunnableSerializable
+
+import importlib.util
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,6 +187,7 @@ class LiteralFormatter(Formatter):
 @dataclass(frozen=True, slots=True)
 class AICondition(Condition):
     chain: RunnableSerializable
+    model: BaseChatModel
     system_template: str
     inquiry_template: str
     func: None = field(init=False, default=None)
@@ -238,13 +244,23 @@ def ai_condition(model: BaseChatModel, inquiry: str) -> AICondition:
     )
     structured_model = model.with_structured_output(BooleanDecision)
     chain = prompt_template | structured_model
-    return AICondition(chain=chain, system_template=system, inquiry_template=inquiry, facts=facts)
+    return AICondition(chain=chain, model=model, system_template=system, inquiry_template=inquiry, facts=facts)
 
 
-default_model = ChatOpenAI(model="gpt-4o-mini", temperature=0, max_tokens=100)  # type: ignore[call-arg] - pyright can't see the args for some reason
+@lru_cache(maxsize=1)
+def _detect_default_model() -> BaseChatModel:
+    # TODO: Expand this to detect other providers
+    if importlib.util.find_spec("langchain_openai"):
+        from langchain_openai import ChatOpenAI
+
+        logger.debug("Using OpenAI as the default LLM model provider.")
+        return ChatOpenAI(model="gpt-4o-mini", temperature=0, max_tokens=100)  # type: ignore[call-arg] - pyright can't see the args for some reason
+    else:
+        msg = "Unable to import a default LLM provider. Please install `vulcan_core` with the approriate extras package or specify your custom model explicitly."
+        raise ImportError(msg)
 
 
-def condition(func: ConditionCallable | str) -> Condition:
+def condition(func: ConditionCallable | str, model: BaseChatModel | None  = None) -> Condition:
     """
     Creates a Condition object from a lambda or function. It performs limited static analysis of the code to ensure
     proper usage and discover the facts/attributes accessed by the condition. This allows the rule engine to track
@@ -284,10 +300,14 @@ def condition(func: ConditionCallable | str) -> Condition:
     """
 
     if not isinstance(func, str):
+        # Logic condition assumed, ignore kwargs
         processed = ASTProcessor[ConditionCallable](func, condition, bool)
         return Condition(processed.facts, processed.func)
     else:
-        return ai_condition(default_model, func)
+        # AI condition assumed
+        if not model:
+            model = _detect_default_model()
+        return ai_condition(model, func)
 
 
 # TODO: Create a convenience function for creating OnFactChanged conditions

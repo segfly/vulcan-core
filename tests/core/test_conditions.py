@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2025 Latchfield Technologies http://latchfield.com
 
+from functools import partial
+from unittest.mock import Mock
+
 import pytest
 from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
@@ -108,8 +111,34 @@ def test_ai_simple_condition_true(model: BaseChatModel, fact_a_instance: FactA, 
     assert cond(fact_a_instance, fact_b_instance) is True
 
 
+@pytest.mark.integration
 def test_ai_missing_fact(model: BaseChatModel):
     # TODO: Determine the difference between tool calls and non-tool calls
     # We shouldn't raise an exception if tools are being used
     with pytest.raises(MissingFactError):
         ai_condition(model, "Is the sky blue?")
+
+
+@pytest.mark.integration
+def test_aicondition_with_custom_model(model: BaseChatModel, fact_a_instance: FactA, fact_b_instance: FactB):
+    cond = condition(f"Are {FactA.feature} and {FactB.feature} both on the same planet?", model=model)
+
+    assert set(cond.facts) == {"FactA.feature", "FactB.feature"}
+    assert cond(fact_a_instance, fact_b_instance) is False
+
+
+def test_condition_with_custom_model(foo_instance: Foo, bar_instance: Bar):
+    model = Mock()
+    condition(lambda: Foo.baz and Bar.biz, model=model)
+
+
+def test_aicondition_model_override():
+    model1 = Mock()
+    model2 = Mock()
+
+    custom_condition = partial(condition, model=model1)
+
+    cond1 = custom_condition(f"Are {FactA.feature} and {FactB.feature} both on the same planet?")
+    cond2 = custom_condition(f"Are {FactA.feature} and {FactB.feature} both on the same planet?", model=model2)
+
+    assert cond1.model != cond2.model  # type: ignore
