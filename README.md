@@ -3,7 +3,7 @@
 <img alt="Vulcan Logo" src="https://latchfield.com/vulcan/assets/images/vulcan-logo.svg" height="100px">
 
 # AI-Hybrid Rules Engine for Logical Reasoning
-![Version](https://img.shields.io/pypi/v/vulcan_core)
+[![Version](https://img.shields.io/pypi/v/vulcan_core)](https://pypi.org/project/vulcan-core/)
 
 Vulcan is an AI-hybrid rules engine designed for advanced automated reasoning. It combines the power of rule-based decision systems with LLMs (Large Language Models) for improved consistency and explainability in AI-powered systems.
 
@@ -36,14 +36,14 @@ Into repeatable, consistent, and explainable rules:
 ```python
 # Use natural language for prediction and data retrieval:
 engine.rule(
-    when(f"Are {Apple.kind} considered good for baking?"),
-    then(Apple(baking=True)),
+    when=condition(f"Are {Apple.kind} considered good for baking?"),
+    then=action(Apple(baking=True)),
 )
 
 # Use computed logic for operations that must be correct:
 engine.rule(
-    when(Apple.baking && lambda: Inventory.apples < 10),
-    then(Order(apples=10)),
+    when=condition(Apple.baking && lambda: Inventory.apples < 10),
+    then=action(Order(apples=10)),
 )
 
 # Intelligent on-demand rule evaluation:
