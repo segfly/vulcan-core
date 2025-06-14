@@ -42,7 +42,7 @@ engine.rule(
 
 # Use computed logic for operations that must be correct:
 engine.rule(
-    when=condition(Apple.baking && lambda: Inventory.apples < 10),
+    when=condition(lambda: Apple.baking and Inventory.apples < 10),
     then=action(Order(apples=10)),
 )
 
