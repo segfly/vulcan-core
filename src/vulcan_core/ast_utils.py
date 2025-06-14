@@ -3,17 +3,20 @@
 
 import ast
 import inspect
+import logging
 import re
 import textwrap
-import threading
 from ast import Attribute, Module, Name, NodeTransformer, NodeVisitor
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import cached_property
 from types import MappingProxyType
-from typing import Any, TypeAliasType, get_type_hints
+from typing import Any, ClassVar, TypeAliasType, get_type_hints
 
 from vulcan_core.models import Fact, HasSource
+
+logger = logging.getLogger(__name__)
 
 
 class ASTProcessingError(RuntimeError):
@@ -84,22 +87,73 @@ class AttributeTransformer(NodeTransformer):
         return node
 
 
-# Global index to cache and track lambda function positions within the same source lines.
-# Tuple format: (source code, last processed index)
-# TODO: Consider if a redesign is possible to have a single ASTProcessor handle the entire source line, perhaps eagerly
-# processing all lambdas found in the line before the correspondign `condition` call.
-_lambda_index_lock = threading.Lock()
-lambda_index: dict[Any, tuple[str, int | None]] = {}
+@dataclass(slots=True)
+class LambdaSource:
+    """Index entry for tracking the parsing position of lambda functions in source lines.
+
+    Attributes:
+        source (str): The source code string containing lambda functions
+        count (int): The number of lambda functions found in the source string.
+        pos (int): The current parsing position within the source string.
+    """
+
+    source: str
+    count: int
+    pos: int = field(default=0)
+    in_use: bool = field(default=True)
 
 
 @dataclass
 class ASTProcessor[T: Callable]:
+    """
+    This class extracts source code from functions or lambda expressions, parses them into
+    Abstract Syntax Trees (AST), and performs various validations and transformations.
+
+    The processor validates that:
+    - Functions have proper type hints for parameters and return types
+    - All parameters are subclasses of Fact
+    - No nested attribute access (e.g., X.y.z) is used
+    - No async functions are processed
+    - Lambda expressions do not contain parameters
+    - No duplicate parameter types in function signatures
+
+    For lambda expressions, it automatically transforms attribute access patterns
+    (e.g., ClassName.attribute) into parameterized functions for easier execution.
+
+    Note: This class is not thread-safe and should not be used concurrently across multiple threads.
+
+    Type Parameters:
+        T: The type signature the processor is working with, this varies based on a condition or action being processed.
+
+    Attributes:
+        func: The callable to process, a lambda or a function
+        decorator: The decorator type that initiated the processing (e.g., `condition` or `action`)
+        return_type: Expected return type for the callable
+        source: Extracted source code of func (set during post-init)
+        tree: Parsed AST of the source code (set during post-init)
+        facts: Tuple of fact strings discovered in the callable (set during post-init)
+
+    Properties:
+        is_lambda: True if the callable is a lambda expression
+
+    Raises:
+        OSError: When source code cannot be extracted
+        ScopeAccessError: When accessing undefined classes or using nested attributes
+        CallableSignatureError: When function signature doesn't meet requirements
+        NotAFactError: When parameter types are not Fact subclasses
+        ASTProcessingError: When AST processing encounters internal errors
+    """
+
     func: T
     decorator: Callable
     return_type: type | TypeAliasType
     source: str = field(init=False)
     tree: Module = field(init=False)
     facts: tuple[str, ...] = field(init=False)
+
+    # Class-level tracking of lambdas across parsing calls to handle multiple lambdas on the same line
+    _lambda_cache: ClassVar[OrderedDict[str, LambdaSource]] = OrderedDict()
+    _MAX_LAMBDA_CACHE_SIZE: ClassVar[int] = 1024
 
     @cached_property
     def is_lambda(self) -> bool:
@@ -113,30 +167,34 @@ class ASTProcessor[T: Callable]:
             try:
                 if self.is_lambda:
                     # As of Python 3.12, there is no way to determine to which lambda self.func refers in an
-                    # expression containing multiple lambdas. Therefore we use a global dict to track the index of each
+                    # expression containing multiple lambdas. Therefore we use a dict to track the index of each
                     # lambda function encountered, as the order will correspond to the order of ASTProcessor
                     # invocations for that line. An additional benefit is that we can also use this as a cache to
                     # avoid re-reading the source code for lambda functions sharing the same line.
-                    #
-                    # The key for the index is a hash of the stack trace plus line number, which will be
-                    # unique for each call of a list of lambdas on the same line.
-                    frames = inspect.stack()[1:]  # Exclude current frame
-                    key = "".join(f"{f.filename}:{f.lineno}" for f in frames)
+                    source_line = f"{self.func.__code__.co_filename}:{self.func.__code__.co_firstlineno}"
+                    lambda_src = self._lambda_cache.get(source_line)
 
-                    # Use a lock to ensure thread safety when accessing the global lambda index
-                    with _lambda_index_lock:
-                        index = lambda_index.get(key)
-                        if index is None or index[1] is None:
-                            self.source = self._get_lambda_source()
-                            index = (self.source, 0)
-                            lambda_index[key] = index
-                        else:
-                            self.source = index[0]
-                            index = (self.source, index[1] + 1)
-                            lambda_index[key] = index
+                    if lambda_src is None:
+                        self.source = self._get_lambda_source()
+                        lambda_count = self._count_lambdas(self.source)
+                        lambda_src = LambdaSource(self.source, lambda_count)
+                        self._lambda_cache[source_line] = lambda_src
+                        self._trim_lambda_cache()
+                    else:
+                        self.source = lambda_src.source
+                        lambda_src.pos += 1
+
+                        # Reset the position if it exceeds the count of lambda expressions
+                        if lambda_src.pos >= lambda_src.count:
+                            lambda_src.pos = 0
 
                     # Normalize the lambda source and extract the next lambda expression from the last index
-                    self.source = self._normalize_lambda_source(self.source, index[1])
+                    self.source = self._normalize_lambda_source(self.source, lambda_src.pos)
+
+                    # If done processing lambdas in the source, mark as not processing anymore
+                    if lambda_src.pos >= lambda_src.count - 1:
+                        lambda_src.in_use = False
+
                 else:
                     self.source = textwrap.dedent(inspect.getsource(self.func))
             except OSError as e:
@@ -180,19 +238,48 @@ class ASTProcessor[T: Callable]:
 
             self.facts = tuple(facts)
 
+    def _trim_lambda_cache(self) -> None:
+        """Clean up lambda cache by removing oldest unused entries when cache size exceeds limit."""
+        if len(self._lambda_cache) <= self._MAX_LAMBDA_CACHE_SIZE:
+            return
+
+        # Calculate how many entries to remove (excess + 20% buffer to avoid thrashing)
+        excess_count = len(self._lambda_cache) - self._MAX_LAMBDA_CACHE_SIZE
+        buffer_count = int(self._MAX_LAMBDA_CACHE_SIZE * 0.2)
+        target_count = excess_count + buffer_count
+
+        # Find and remove unused entries
+        removed_count = 0
+        for key in list(self._lambda_cache):
+            if removed_count >= target_count:
+                break
+            if not self._lambda_cache[key].in_use:
+                del self._lambda_cache[key]
+                removed_count += 1
+
+    def _count_lambdas(self, source: str) -> int:
+        """Count lambda expressions in source code using AST parsing."""
+        tree = ast.parse(source)
+
+        class LambdaCounter(ast.NodeVisitor):
+            def __init__(self):
+                self.count = 0
+
+            def visit_Lambda(self, node):  # noqa: N802 - Case sensitive for AST
+                self.count += 1
+                self.generic_visit(node)
+
+        counter = LambdaCounter()
+        counter.visit(tree)
+        return counter.count
+
     def _get_lambda_source(self) -> str:
         """Get single and multiline lambda source using AST parsing of the source file."""
+        source = None
+
         try:
-            # Get caller frame to find the source file
-            frame = inspect.currentframe()
-            while frame and frame.f_code.co_name != self.decorator.__name__:
-                frame = frame.f_back
-
-            if not frame or not frame.f_back:
-                return textwrap.dedent(inspect.getsource(self.func))
-
-            caller_frame = frame.f_back
-            filename = caller_frame.f_code.co_filename
+            # Get the source file and line number
+            filename = self.func.__code__.co_filename
             lambda_lineno = self.func.__code__.co_firstlineno
 
             # Read the source file
@@ -235,20 +322,25 @@ class ASTProcessor[T: Callable]:
                             end_line = i
                             break
 
-                return "\n".join(lines[start_line : end_line + 1])
+                source = "\n".join(lines[start_line : end_line + 1])
 
         except (OSError, SyntaxError, AttributeError):
-            pass
+            logger.exception("Failed to extract lambda source, attempting fallback.")
+            source = inspect.getsource(self.func).strip()
 
-        # Fallback to regular inspect.getsource
-        return textwrap.dedent(inspect.getsource(self.func))
+        if source is None or source == "":
+            msg = "Could not extract lambda source code"
+            raise ASTProcessingError(msg)
+
+        # Normalize the source: convert line breaks to spaces, collapse whitespace, and dedent
+        source = re.sub(r"\r\n|\r|\n", " ", source)
+        source = re.sub(r"\s+", " ", source)
+        source = textwrap.dedent(source)
+
+        return source
 
     def _normalize_lambda_source(self, source: str, index: int) -> str:
         """Extracts just the lambda expression from source code."""
-
-        # Remove line endings and extra whitespace
-        source = re.sub(r"\r\n|\r|\n", " ", source)
-        source = re.sub(r"\s+", " ", source)
 
         # Find the Nth lambda occurrence using generator expression
         positions = [i for i in range(len(source) - 5) if source[i : i + 6] == "lambda"]
