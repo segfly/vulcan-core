@@ -5,7 +5,6 @@ import ast
 import inspect
 import re
 import textwrap
-import threading
 from ast import Attribute, Module, Name, NodeTransformer, NodeVisitor
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -14,6 +13,15 @@ from types import MappingProxyType
 from typing import Any, TypeAliasType, get_type_hints
 
 from vulcan_core.models import Fact, HasSource
+
+
+@dataclass(slots=True)
+class LambdaIndexEntry:
+    """Index entry for tracking lambda functions in source code."""
+
+    source: str
+    last_processed_index: int | None
+    lambda_count: int
 
 
 class ASTProcessingError(RuntimeError):
@@ -84,12 +92,10 @@ class AttributeTransformer(NodeTransformer):
         return node
 
 
-# Global index to cache and track lambda function positions within the same source lines.
-# Tuple format: (source code, last processed index)
-# TODO: Consider if a redesign is possible to have a single ASTProcessor handle the entire source line, perhaps eagerly
-# processing all lambdas found in the line before the correspondign `condition` call.
-_lambda_index_lock = threading.Lock()
-lambda_index: dict[Any, tuple[str, int | None]] = {}
+# Global index to cache and track lambda functions position in lambda source lines.
+# TODO: Note in documentation that thread safety is not guaranteed when loading the same ruleset.
+# TODO: Consider updating to use a thread-safe structure like threading.local() if needed.
+lambda_index: dict[str, LambdaIndexEntry] = {}
 
 
 @dataclass
@@ -113,30 +119,31 @@ class ASTProcessor[T: Callable]:
             try:
                 if self.is_lambda:
                     # As of Python 3.12, there is no way to determine to which lambda self.func refers in an
-                    # expression containing multiple lambdas. Therefore we use a global dict to track the index of each
+                    # expression containing multiple lambdas. Therefore we use a global to track the index of each
                     # lambda function encountered, as the order will correspond to the order of ASTProcessor
                     # invocations for that line. An additional benefit is that we can also use this as a cache to
                     # avoid re-reading the source code for lambda functions sharing the same line.
-                    #
-                    # The key for the index is a hash of the stack trace plus line number, which will be
-                    # unique for each call of a list of lambdas on the same line.
-                    frames = inspect.stack()[1:]  # Exclude current frame
-                    key = "".join(f"{f.filename}:{f.lineno}" for f in frames)
+                    key = self.func.__code__.co_filename + ":" + str(self.func.__code__.co_firstlineno)
 
-                    # Use a lock to ensure thread safety when accessing the global lambda index
-                    with _lambda_index_lock:
-                        index = lambda_index.get(key)
-                        if index is None or index[1] is None:
-                            self.source = self._get_lambda_source()
-                            index = (self.source, 0)
-                            lambda_index[key] = index
+                    entry = lambda_index.get(key)
+                    if entry is None:
+                        self.source = self._get_lambda_source()
+                        lambda_count = self.source.count("lambda:")
+                        entry = LambdaIndexEntry(source=self.source, last_processed_index=0, lambda_count=lambda_count)
+                        lambda_index[key] = entry
+                    else:
+                        self.source = entry.source
+                        if entry.last_processed_index is None:
+                            entry.last_processed_index = 0
                         else:
-                            self.source = index[0]
-                            index = (self.source, index[1] + 1)
-                            lambda_index[key] = index
+                            entry.last_processed_index += 1
+
+                        if entry.last_processed_index >= entry.lambda_count:
+                            entry.last_processed_index = 0
 
                     # Normalize the lambda source and extract the next lambda expression from the last index
-                    self.source = self._normalize_lambda_source(self.source, index[1])
+                    index = entry.last_processed_index or 0
+                    self.source = self._normalize_lambda_source(self.source, index)
                 else:
                     self.source = textwrap.dedent(inspect.getsource(self.func))
             except OSError as e:

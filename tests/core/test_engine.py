@@ -78,8 +78,8 @@ def test_simple_rule(engine: RuleEngine):
 
 # https://github.com/latchfield/vulcan-core/issues/44
 def test_lambda_reparsing(engine: RuleEngine):
-    for _ in range(2):
-        load_simple_rule(engine)
+    load_simple_rule(engine)
+    load_simple_rule(engine)
 
 
 # https://github.com/latchfield/vulcan-core/issues/46
