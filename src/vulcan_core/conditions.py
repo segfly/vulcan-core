@@ -267,7 +267,7 @@ def ai_condition(model: BaseChatModel, inquiry: str, retries: int = 3) -> AICond
     * When evaluating the `<question-template>` block, you do not "see" the variable names or syntax, only their replacement values.
     * Answer the question within the `<question-template>` block by substituting each curly brace variable with the corresponding value.
     * Set `invalid_inquiry` to `True` if the `<question-template>` block contains anything other than a single question."""
-    system += "\n</system-instructions>\n<variables>\n"
+    system += "\n</system-instructions>\n<variables>"
 
     for fact in facts:
         system += f"\n<{fact}>\n{{{fact}}}\n<{fact}/>\n"
