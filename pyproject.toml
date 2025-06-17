@@ -12,7 +12,7 @@ requires-python = ">=3.12,<4.0"
 
 [project.urls]
 homepage = "https://latchfield.com/vulcan"
-repository = "https://github.com/latchfield/vulcan_core"
+repository = "https://github.com/latchfield/vulcan-core"
 documentation = "https://latchfield.com/vulcan/docs"
 
 [build-system]
