@@ -232,6 +232,20 @@ def test_not_a_fact():
         engine.fact(NotAFact())  # type: ignore
 
 
+# Test case for https://github.com/latchfield/vulcan-core/issues/61
+def test_skip_rule_missing_facts():
+    engine = RuleEngine()
+
+    engine.rule(
+        when=condition(lambda: Foo.baz and Bar.biz),
+        then=action(partial(Biff, bez=True)),
+        inverse=action(partial(Biff, bez=False)),
+    )
+
+    engine.evaluate(Foo())
+    assert Biff.__name__ not in engine.facts
+
+
 @pytest.mark.integration
 def test_ai_simple_rule(engine: RuleEngine):
     # TODO: This test is firing the second rule twice for some reason

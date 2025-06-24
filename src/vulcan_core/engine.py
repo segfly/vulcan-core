@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from functools import cached_property, partial
 from types import MappingProxyType
@@ -15,6 +16,8 @@ from vulcan_core.models import DeclaresFacts, Fact
 if TYPE_CHECKING:  # pragma: no cover - not used at runtime
     from vulcan_core.actions import Action
     from vulcan_core.conditions import Expression
+
+logger = logging.getLogger(__name__)
 
 
 class InternalStateError(RuntimeError):
@@ -124,7 +127,9 @@ class RuleEngine:
 
             self._facts[type(fact).__name__] = fact
 
-    def rule[T: Fact](self, *, name: str | None = None, when: Expression, then: Action, inverse: Action | None = None) -> None:
+    def rule[T: Fact](
+        self, *, name: str | None = None, when: Expression, then: Action, inverse: Action | None = None
+    ) -> None:
         """
         Convenience method for adding a rule to the rule engine.
 
@@ -218,11 +223,19 @@ class RuleEngine:
                         # Skip if we already evaluated the rule this iteration
                         if rule.id in fired_rules:
                             continue
+
+                        # Skip if not all facts required by the rule are present
+                        try:
+                            resolved_facts = self._resolve_facts(rule.when)
+                        except KeyError as e:
+                            logger.debug("Rule %s (%s) skipped due to missing fact: %s", rule.name, rule.id, str(e))
+                            continue
+
+                        action = None
                         fired_rules.add(rule.id)
 
                         # Evaluate the rule's 'when' and determine which action to invoke
-                        action = None
-                        if rule.when(*self._resolve_facts(rule.when)):
+                        if rule.when(*resolved_facts):
                             action = rule.then
                         elif rule.inverse:
                             action = rule.inverse
