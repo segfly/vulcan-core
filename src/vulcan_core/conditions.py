@@ -287,8 +287,7 @@ class AICondition(Condition):
                 logger.debug("Retrying AI condition (attempt %s), reason: %s", attempt + 1, e)
 
         if result.result is None or result.processing_failed:
-            reason = "invalid inquiry" if result.processing_failed else result.comments
-            msg = f"Failed after {self.retries} attempts; reason: {reason}"
+            msg = f"Failed after {self.retries} attempts; reason: {result.comments}"
             raise AIDecisionError(msg)
 
         return not result.result if self.inverted else result.result
