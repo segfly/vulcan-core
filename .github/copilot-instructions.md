@@ -2,6 +2,10 @@ This is a Python-based repository that provides a library and CLI tools for buil
 
 ## Coding Standards
 
+### Environment Setup
+- The working environment is configured and ready to use. Do not perform initial project setup steps, such as package installation.
+- Use `poetry run` to run all Python-related commands in the virtual environment (e.g. `poetry run python`, `poetry run pytest`, etc.).
+
 ### Required Before Each Commit
 1. Run `poetry run deptry ./src` to check for dependency issues. Fix all issues using `poetry add` or `poetry remove`.
 2. Run `poetry run ruff check --fix --unsafe-fixes --output-format=grouped` to check and fix linting issues.
