@@ -212,7 +212,7 @@ class DeferredFormatter(Formatter):
         super().__init__()
         self.found_lookups: dict[str, Similarity] = {}
 
-    def get_field(self, field_name, args, kwargs):
+    def get_field(self, field_name, args, kwargs) -> tuple[str, str]:
         """
         Resolves field references with special handling for Similarity objects.
 
@@ -225,7 +225,7 @@ class DeferredFormatter(Formatter):
             kwargs (dict): Keyword arguments for the formatter
 
         Returns:
-            tuple[str | Any, str]: (resolved_value_or_placeholder, root_field_name)
+            tuple[Any, str]: (resolved_value_or_placeholder, root_field_name)
         """
         first, rest = _string.formatter_field_name_split(field_name)
         obj = self.get_value(first, args, kwargs)
