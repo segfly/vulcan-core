@@ -293,15 +293,13 @@ def test_skip_rule_missing_facts():
 
 @pytest.mark.integration
 def test_ai_simple_rule(engine: RuleEngine):
-    # TODO: This test is firing the second rule twice for some reason
-
     engine.rule(
         when=condition(f"Are {LocationA.name} and {LocationB.name} volcanos?"),
         then=action(partial(LocationAnalysis, commonality="volcano")),
     )
 
     engine.rule(
-        when=condition(f"Is {LocationAnalysis.commonality} and {Material.name} related?"),
+        when=condition(f"Are {LocationAnalysis.commonality} and {Material.name} related concepts?"),
         then=action(partial(LocationResult, all_related=True)),
     )
 
