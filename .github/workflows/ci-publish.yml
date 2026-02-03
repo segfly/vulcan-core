@@ -56,7 +56,7 @@ jobs:
 
           # Ensure the version in pyproject.toml matches the git tag
           GIT_TAG_VERSION=${GITHUB_REF#refs/tags/v}
-          PYPROJECT_VERSION=$(grep -Po '(?<=^version = ")[^"]*' pyproject.toml)
+          PYPROJECT_VERSION=$(grep -Eo '^version\s*=\s*"[0-9.]*' pyproject.toml | cut -d'"' -f2)
           if [[ "${GITHUB_REF#refs/tags/v}" != "$PYPROJECT_VERSION" ]]; then
             echo "::error::Version mismatch! Git tag ($GIT_TAG_VERSION) doesn't match pyproject.toml version ($PYPROJECT_VERSION)"
             exit 1
