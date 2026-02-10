@@ -62,6 +62,9 @@ runs:
           .venv
         key: uv-${{ hashFiles('uv.lock') }}
 
+    # TODO: Considering separating cache for python versions (.local/share/uv/)
+    # Will need to update utils/pyvers.py to report the Python patch version to use as the hashfiles input
+
     # Pipx Cache Control
     - name: Restore pipx cache
       uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 #v5.0.3

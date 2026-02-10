@@ -94,7 +94,7 @@ jobs:
 
           echo "fully_cached=${{ steps.tests.outputs.cache-hit && steps.security.outputs.cache-hit && steps.analysis.outputs.cache-hit }}" >> $GITHUB_OUTPUT
 
-      - name: Checkout codebase
+      - name: Checkout essential prebuild files
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd #v6.0.2
 
       # Cache warmup for parallel dependent jobs

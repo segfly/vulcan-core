@@ -13,7 +13,7 @@ on:
         type: choice
         options:
           - test.pypi.org
-          - pypi.org
+          - upload.pypi.org
       skip_cache:
         description: "Skip Commit SHA Cache"
         required: true
@@ -32,7 +32,6 @@ jobs:
       build-cache-hit: ${{ steps.build.outputs.cache-hit && !inputs.skip_cache }}
       repo_name: ${{ steps.config.outputs.repo_name }}
       project_name: ${{ steps.config.outputs.project_name }}
-      repository_url: ${{ steps.config.outputs.repository_url }}
     steps:
       - name: Sparse checkout codebase
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd #v6.0.2
@@ -59,13 +58,6 @@ jobs:
           PYPROJECT_NAME=$(grep -m 1 -Po '(?<=^name = ")[^"]*' pyproject.toml)
           echo "repo_name=${GITHUB_REPOSITORY#*/}" >> $GITHUB_OUTPUT
           echo "project_name=${PYPROJECT_NAME}" >> $GITHUB_OUTPUT
-
-          # test.pypi.org requires appending /legacy/ to the URL
-          if [[ "${{ inputs.environment }}" == "test.pypi.org" ]]; then
-            echo "repository_url=https://${{ inputs.environment }}/legacy/" >> $GITHUB_OUTPUT
-          else
-            echo "repository_url=https://${{ inputs.environment }}" >> $GITHUB_OUTPUT
-          fi
 
       - name: Lookup build cache
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 #v5.0.3
@@ -121,4 +113,4 @@ jobs:
         if: ${{ !env.ACT }}
         uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e #v1.13.0
         with:
-          repository-url: ${{ needs.prepublish.outputs.repository_url }}
+          repository-url: https://${{ inputs.environment }}/legacy/
