@@ -30,6 +30,12 @@ class Action(FactHandler[ActionCallable, ActionReturn], DeclaresFacts):
 def _infer_output_classes(processor: ASTProcessor[ActionCallable]) -> tuple[type[Fact], ...]:
     """Infer the `Fact` subclasses produced by an action callable.
 
+    Class names that appear as constructors in the lambda body are resolved first from
+    `analysis.fact_classes` (populated via attribute-access tracking), then by looking
+    up the name in the callable's `__globals__` and confirming it is a `Fact` subclass.
+    This handles action lambdas that construct new facts without reading any fact
+    attributes (e.g. ``lambda: User(name="x")``).
+
     Results are deduplicated while preserving first-seen order.
 
     Args:
@@ -39,27 +45,35 @@ def _infer_output_classes(processor: ASTProcessor[ActionCallable]) -> tuple[type
         A tuple of `Fact` subclass types produced by the callable.
     """
     fact_classes = processor.analysis.fact_classes
+    func_globals: dict[str, object] = getattr(processor.func, "__globals__", {})
     seen: dict[str, type[Fact]] = {}
+
+    def _resolve(name: str) -> type[Fact] | None:
+        if name in fact_classes:
+            return fact_classes[name]
+        val = func_globals.get(name)
+        if isinstance(val, type) and issubclass(val, Fact):
+            return val
+        return None
 
     for node in ast.walk(processor.analysis.ast_body):
         if not isinstance(node, ast.Call):
             continue
 
-        # Direct constructor call: ClassName(...)
-        if isinstance(node.func, ast.Name) and node.func.id in fact_classes:
-            class_name = node.func.id
-            seen.setdefault(class_name, fact_classes[class_name])
+        if not isinstance(node.func, ast.Name):
+            continue
 
-        # partial(ClassName, ...) pattern
-        elif (
-            isinstance(node.func, ast.Name)
-            and node.func.id == "partial"
-            and node.args
-            and isinstance(node.args[0], ast.Name)
-            and node.args[0].id in fact_classes
-        ):
-            class_name = node.args[0].id
-            seen.setdefault(class_name, fact_classes[class_name])
+        # partial(ClassName, ...) pattern — check before the generic constructor case
+        if node.func.id == "partial" and node.args and isinstance(node.args[0], ast.Name):
+            cls = _resolve(node.args[0].id)
+            if cls is not None:
+                seen.setdefault(node.args[0].id, cls)
+
+        # Direct constructor call: ClassName(...)
+        else:
+            cls = _resolve(node.func.id)
+            if cls is not None:
+                seen.setdefault(node.func.id, cls)
 
     return tuple(seen.values())
 
