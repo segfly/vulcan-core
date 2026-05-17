@@ -13,8 +13,8 @@ from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import cached_property
-from types import MappingProxyType, FunctionType
-from typing import Any, ClassVar, TypeAliasType, get_type_hints
+from types import FunctionType, MappingProxyType
+from typing import Any, ClassVar, TypeAliasType, cast, get_type_hints
 
 from vulcan_core.models import Fact, HasSource
 
@@ -106,6 +106,23 @@ class LambdaTracker:
     in_use: bool = field(default=True)
 
 
+@dataclass(frozen=True, slots=True)
+class AnalysisInfo:
+    """Static analysis metadata captured at callable construction time for use during rule validation.
+
+    Instances are created by `ASTProcessor` and stored on `FactHandler` subclasses so that
+    `RuleEngine.validate()` never needs to re-parse source code.
+
+    Args:
+        ast_body: The body expression of the callable, used as the root node for static analysis.
+        fact_classes: Map from class name string to the actual class object for each `Fact`
+            subclass referenced by the callable.
+    """
+
+    ast_body: ast.expr
+    fact_classes: dict[str, type[Fact]]
+
+
 @dataclass
 class ASTProcessor[T: Callable]:
     """
@@ -153,6 +170,7 @@ class ASTProcessor[T: Callable]:
     source: str = field(init=False)
     tree: Module = field(init=False)
     facts: tuple[str, ...] = field(init=False)
+    analysis: AnalysisInfo = field(init=False)
 
     # Class-level tracking of lambdas across parsing calls to handle multiple lambdas on the same line
     _lambda_cache: ClassVar[OrderedDict[str, LambdaTracker]] = OrderedDict()
@@ -223,6 +241,12 @@ class ASTProcessor[T: Callable]:
             self.facts = tuple(facts)
             self.func = self._transform_lambda(class_to_param, caller_globals)
 
+            # Build analysis metadata from the lambda body and discovered fact classes
+            lambda_expr = cast("ast.Lambda", cast("ast.Expr", self.tree.body[0]).value)
+            lambda_ast_body = lambda_expr.body
+            analysis_fact_classes = {name: caller_globals[name] for name in class_to_param}
+            self.analysis = AnalysisInfo(ast_body=lambda_ast_body, fact_classes=analysis_fact_classes)
+
         else:
             # Get function metadata and validate signature
             hints = get_type_hints(self.func)
@@ -241,6 +265,20 @@ class ASTProcessor[T: Callable]:
                 facts.append(f"{hints[class_name].__name__}.{attr}")
 
             self.facts = tuple(facts)
+
+            # Build analysis metadata from the function return expression and typed parameters
+            func_body = cast("ast.FunctionDef", self.tree.body[0]).body
+            return_value = next(
+                (node.value for node in func_body if isinstance(node, ast.Return) and node.value),
+                None,
+            )
+            ast_body: ast.expr = return_value if return_value is not None else ast.Constant(value=None)
+            analysis_fact_classes = {
+                hints[p].__name__: hints[p]
+                for p in params
+                if p != "return" and isinstance(hints.get(p), type) and issubclass(hints[p], Fact)
+            }
+            self.analysis = AnalysisInfo(ast_body=ast_body, fact_classes=analysis_fact_classes)
 
     def _trim_lambda_cache(self) -> None:
         """Clean up lambda cache by removing oldest unused entries when cache size exceeds limit."""

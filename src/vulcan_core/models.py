@@ -7,7 +7,7 @@ import inspect
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterator, Mapping
 from copy import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum, auto
 from typing import (
     TYPE_CHECKING,
@@ -26,6 +26,8 @@ if TYPE_CHECKING:  # pragma: no cover - not used at runtime
     from functools import partial
 
     from langchain_core.vectorstores import VectorStoreRetriever
+
+    from vulcan_core.ast_utils import AnalysisInfo
 
 # FIXME: Apparenlty TypeAliasTypes don't work with runtime checks. Every place this is done needs to be reworked to use classes or union of classes
 # https://discuss.python.org/t/type-aliases-dont-work-with-isinstance/104339/2
@@ -164,6 +166,7 @@ class DeclaresFacts(ABC):
 @dataclass(frozen=True)
 class FactHandler[T: Callable, R: Any](ABC):
     func: T
+    _analysis: AnalysisInfo | None = field(default=None, kw_only=True)
 
     @abstractmethod
     def _evaluate(self, *args: Fact) -> R: ...
