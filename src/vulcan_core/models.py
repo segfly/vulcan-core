@@ -166,7 +166,7 @@ class DeclaresFacts(ABC):
 @dataclass(frozen=True)
 class FactHandler[T: Callable, R: Any](ABC):
     func: T
-    _analysis: AnalysisInfo | None = field(default=None, kw_only=True)
+    analysis: AnalysisInfo | None = field(default=None, kw_only=True)
 
     @abstractmethod
     def _evaluate(self, *args: Fact) -> R: ...

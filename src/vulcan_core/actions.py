@@ -67,7 +67,7 @@ def _infer_output_classes(processor: ASTProcessor[ActionCallable]) -> tuple[type
 def action(value: ActionCallable | ActionReturn) -> Action:
     if not isinstance(value, partial) and callable(value):
         processed = ASTProcessor[ActionCallable](value, action, ActionReturn)  # ty:ignore[invalid-argument-type] - needs to be reworked to avoid runtime checks on TypeAliasTypes
-        return Action(processed.facts, processed.func, _infer_output_classes(processed), _analysis=processed.analysis)
+        return Action(processed.facts, processed.func, _infer_output_classes(processed), analysis=processed.analysis)
     else:
         # Determine output_classes from the static value type(s)
         if isinstance(value, tuple):

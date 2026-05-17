@@ -438,7 +438,7 @@ def condition(func: ConditionCallable | str, retries: int = 3, model: BaseChatMo
     if not isinstance(func, str):
         # Logic condition assumed, ignore kwargs
         processed = ASTProcessor[ConditionCallable](func, condition, bool)
-        return Condition(processed.facts, processed.func, _analysis=processed.analysis)
+        return Condition(processed.facts, processed.func, analysis=processed.analysis)
     else:
         # AI condition assumed
         if not model:
