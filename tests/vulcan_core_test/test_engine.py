@@ -13,7 +13,7 @@ from langchain_core.messages.tool import tool_call
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.runnables import Runnable
 
-from tests.core.fixtures.rule_loading import load_simple_rule
+from tests.vulcan_core_test.fixtures.rule_loading import load_simple_rule
 from vulcan_core import Fact, InternalStateError, RecursionLimitError, RuleEngine, action, condition
 from vulcan_core.ast_utils import NotAFactError
 
