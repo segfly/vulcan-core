@@ -2,6 +2,7 @@
 # Copyright 2025 Latchfield Technologies http://latchfield.com
 
 from vulcan_core.actions import Action, action
+from vulcan_core.analysis import AnalysisReport, Findings, ValidationInternalError, ValidationResult
 from vulcan_core.ast_utils import (
     ASTProcessingError,
     CallableSignatureError,
@@ -24,12 +25,14 @@ __all__ = [
     "ASTProcessingError",
     "Action",
     "ActionReturn",
+    "AnalysisReport",
     "CallableSignatureError",
     "ChunkingStrategy",
     "CompoundCondition",
     "Condition",
     "ContractError",
     "Fact",
+    "Findings",
     "InternalStateError",
     "MissingFactError",
     "NotAFactError",
@@ -40,6 +43,8 @@ __all__ = [
     "RuleEngine",
     "ScopeAccessError",
     "Similarity",
+    "ValidationInternalError",
+    "ValidationResult",
     "action",
     "condition",
 ]

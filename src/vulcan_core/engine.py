@@ -21,6 +21,7 @@ if TYPE_CHECKING:  # pragma: no cover - not used at runtime
     from collections.abc import Mapping
 
     from vulcan_core.actions import Action
+    from vulcan_core.analysis import ValidationResult
     from vulcan_core.conditions import Expression
 
 logger = logging.getLogger(__name__)
@@ -367,3 +368,14 @@ class RuleEngine:
 
     def yaml_report(self) -> str:
         return self._audit.generate_yaml_report()
+
+    def validate(self) -> ValidationResult:
+        """Perform static analysis of the registered ruleset without executing it.
+
+        Returns:
+            A `ValidationResult` containing a `Findings` flag summary and a
+            structured `AnalysisReport` with per-issue detail.
+        """
+        from vulcan_core.analysis import RulesetAnalyzer
+
+        return RulesetAnalyzer().validate(self)

@@ -187,6 +187,41 @@ class RuleContext:
         return {self.fact_attribute: self.value}
 
 
+def _dump_yaml(data: dict) -> str:
+    """Serialize a dictionary to a YAML string using safe, consistent formatting.
+
+    Renders `None` values as the string ``"None"`` rather than the YAML null
+    literal, and disables line-length wrapping to keep long strings on a single
+    line.
+
+    Args:
+        data: The dictionary to serialize.
+
+    Returns:
+        A YAML-formatted string representation of `data`.
+    """
+
+    # Represent None as the string "None" to avoid ambiguous null output
+    def represent_none(dumper: yaml.SafeDumper, data: None) -> yaml.ScalarNode:
+        return dumper.represent_scalar("tag:yaml.org,2002:str", "None")
+
+    # Isolate custom representer in a subclass to avoid mutating global state
+    class CustomDumper(yaml.SafeDumper):
+        pass
+
+    CustomDumper.add_representer(type(None), represent_none)
+
+    # Dump with a very large width to prevent automatic line wrapping
+    return yaml.dump(
+        data,
+        Dumper=CustomDumper,
+        default_flow_style=False,
+        allow_unicode=True,
+        sort_keys=False,
+        width=1000000,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class EvaluationReport:
     """Represents the complete evaluation report."""
@@ -199,27 +234,7 @@ class EvaluationReport:
 
     def to_yaml(self) -> str:
         """Convert the report to YAML format."""
-
-        # Create a custom representer for None values
-        def represent_none(dumper: yaml.SafeDumper, data: None) -> yaml.ScalarNode:
-            return dumper.represent_scalar("tag:yaml.org,2002:str", "None")
-
-        # Create a custom dumper to avoid global state issues
-        class CustomDumper(yaml.SafeDumper):
-            pass
-
-        # Add the custom representer to our custom dumper
-        CustomDumper.add_representer(type(None), represent_none)
-
-        # Also prevent hard-line wrapping by setting a high width
-        return yaml.dump(
-            self.to_dict(),
-            Dumper=CustomDumper,
-            default_flow_style=False,
-            allow_unicode=True,
-            sort_keys=False,
-            width=1000000,  # Very large width to prevent wrapping
-        )
+        return _dump_yaml(self.to_dict())
 
 
 @dataclass(slots=True)
