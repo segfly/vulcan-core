@@ -8,14 +8,40 @@ registered with a `RuleEngine`. The public entry point is `RulesetAnalyzer.valid
 summarizing all findings.
 """
 
+import ast
+import logging
 from dataclasses import dataclass
 from enum import Flag, auto
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Self, get_type_hints
 
 from pydantic import BaseModel, model_validator
+from z3 import (  # ty:ignore[unresolved-import] - z3 has no type stubs  # ty:ignore[unresolved-import] - z3 has no type stubs
+    And,
+    Bool,
+    BoolRef,
+    BoolVal,
+    ExprRef,
+    Int,
+    IntVal,
+    Not,
+    Or,
+    Real,
+    RealVal,
+    Solver,
+    String,
+    StringVal,
+    Xor,
+    sat,
+    unsat,
+)
+
+from vulcan_core.conditions import AICondition, CompoundCondition, Condition, Expression, OnFactChanged, Operator
+from vulcan_core.models import Fact
 
 if TYPE_CHECKING:  # pragma: no cover - not used at runtime
     from vulcan_core.engine import RuleEngine
+
+logger = logging.getLogger(__name__)
 
 
 class ValidationInternalError(Exception):
@@ -223,19 +249,300 @@ class ValidationResult(BaseModel, frozen=True):
 
 
 # ---------------------------------------------------------------------------
-# Stub components (implemented in later tasks)
+# Condition encoder
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True, slots=True)
 class ConditionEncoder:
-    """Encodes Vulcan conditions as Z3 formulas for satisfiability checking.
+    """Encode Vulcan `Expression` instances as Z3 formulas for satisfiability checking.
 
-    Not yet implemented.
+    Stateless encoder that dispatches on expression type and recursively converts
+    AST nodes captured at condition-construction time into Z3 boolean expressions.
     """
 
-    def encode(self) -> None:
-        """Encode the condition as a Z3 formula."""
-        raise NotImplementedError
+    def encode(self, expr: Expression) -> tuple[BoolRef, bool]:
+        """Encode an `Expression` as a Z3 formula.
+
+        Args:
+            expr: The expression to encode.
+
+        Returns:
+            A tuple of `(formula, has_ai)` where `has_ai` is `True` if any
+            `AICondition` was encountered during encoding.
+
+        Raises:
+            ValidationInternalError: If a `Condition` has no captured analysis
+                metadata.
+        """
+        # OnFactChanged always fires; represent as a tautology
+        if isinstance(expr, OnFactChanged):
+            return BoolVal(True), False  # noqa: FBT003
+
+        # AICondition is opaque to static analysis; represent as a free variable
+        if isinstance(expr, AICondition):
+            return Bool(f"ai_{id(expr)}"), True
+
+        # CompoundCondition: recursively encode both sides and combine
+        if isinstance(expr, CompoundCondition):
+            return self._encode_compound(expr)
+
+        # Condition: walk the captured AST body
+        if isinstance(expr, Condition):
+            return self._encode_condition(expr)
+
+        # Unknown Expression subtype: treat as opaque free variable
+        logger.debug("Encoding unknown Expression subtype %s as opaque bool", type(expr).__name__)
+        return Bool(f"opaque_{id(expr)}"), False
+
+    def is_satisfiable(self, expr: Expression) -> tuple[bool | None, bool]:
+        """Check whether the encoded expression is satisfiable.
+
+        Args:
+            expr: The expression to check.
+
+        Returns:
+            A tuple of `(satisfiable, has_ai)` where `satisfiable` is `True` if
+            the formula is satisfiable, `False` if unsatisfiable, or `None` if
+            the solver returns unknown.
+        """
+        formula, has_ai = self.encode(expr)
+        solver = Solver()
+        solver.add(formula)
+        result = solver.check()
+        if result == sat:
+            return True, has_ai
+        elif result == unsat:
+            return False, has_ai
+        else:
+            return None, has_ai
+
+    def is_tautology(self, expr: Expression) -> tuple[bool, bool]:
+        """Check whether the encoded expression is a tautology.
+
+        A tautology is a formula that is `True` for all possible variable
+        assignments. This is verified by asserting `Not(formula)` and confirming
+        the result is UNSAT.
+
+        Args:
+            expr: The expression to check.
+
+        Returns:
+            A tuple of `(is_tautology, has_ai)` where `is_tautology` is `True`
+            if the formula holds for all variable assignments.
+        """
+        formula, has_ai = self.encode(expr)
+        solver = Solver()
+        solver.add(Not(formula))
+        return solver.check() == unsat, has_ai
+
+    def _encode_condition(self, expr: Condition) -> tuple[BoolRef, bool]:
+        """Encode a `Condition` by walking its captured AST body.
+
+        Args:
+            expr: The condition to encode.
+
+        Returns:
+            A tuple of `(formula, has_ai)`. `has_ai` is always `False` for
+            non-AI conditions.
+
+        Raises:
+            ValidationInternalError: If the condition has no captured analysis
+                metadata.
+        """
+        if expr.analysis is None:
+            msg = f"Condition source is unavailable for analysis: {expr!r}"
+            raise ValidationInternalError(msg)
+
+        # Build formula from the captured AST body
+        z3_vars: dict[str, ExprRef] = {}
+        formula = self._encode_ast(expr.analysis.ast_body, expr.analysis.fact_classes, z3_vars)
+
+        return (Not(formula) if expr.inverted else formula), False
+
+    def _encode_compound(self, expr: CompoundCondition) -> tuple[BoolRef, bool]:
+        """Encode a `CompoundCondition` by recursively encoding its sub-expressions.
+
+        Args:
+            expr: The compound condition to encode.
+
+        Returns:
+            A tuple of `(formula, has_ai)` where `has_ai` is the OR of both
+            sub-expression `has_ai` flags.
+        """
+        left_formula, left_has_ai = self.encode(expr.left)
+        right_formula, right_has_ai = self.encode(expr.right)
+        has_ai = left_has_ai or right_has_ai
+
+        # Combine sub-formulas with the declared logical operator
+        if expr.operator == Operator.AND:
+            formula: BoolRef = And(left_formula, right_formula)
+        elif expr.operator == Operator.OR:
+            formula = Or(left_formula, right_formula)
+        else:
+            formula = Xor(left_formula, right_formula)
+
+        return (Not(formula) if expr.inverted else formula), has_ai
+
+    def _encode_ast(self, node: ast.expr, fact_classes: dict[str, type[Fact]], z3_vars: dict[str, ExprRef]) -> BoolRef:
+        """Recursively encode an AST expression node as a Z3 boolean formula.
+
+        Args:
+            node: The AST expression node to encode.
+            fact_classes: Map from class name to `Fact` class for typed variable
+                creation.
+            z3_vars: Mutable cache of already-created Z3 variables keyed by
+                `"ClassName.attr"`.
+
+        Returns:
+            A Z3 boolean expression representing the AST node.
+        """
+        # Boolean operators: And / Or
+        if isinstance(node, ast.BoolOp):
+            operands = [self._encode_ast(v, fact_classes, z3_vars) for v in node.values]
+            return And(*operands) if isinstance(node.op, ast.And) else Or(*operands)
+
+        # Logical negation
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+            return Not(self._encode_ast(node.operand, fact_classes, z3_vars))
+
+        # Comparison expressions (e.g., Foo.bar > 5)
+        if isinstance(node, ast.Compare):
+            return self._encode_compare(node, fact_classes, z3_vars)
+
+        # Standalone attribute access treated as a boolean variable (e.g., Foo.flag)
+        if isinstance(node, ast.Attribute):
+            class_name = node.value.id if isinstance(node.value, ast.Name) else ""
+            key = f"{class_name}.{node.attr}"
+            return self._get_or_create_z3_var(key, class_name, node.attr, fact_classes, z3_vars)
+
+        # Boolean constants True / False
+        if isinstance(node, ast.Constant) and isinstance(node.value, bool):
+            return BoolVal(node.value)
+
+        # Unrecognized node: treat as an opaque free boolean variable
+        logger.debug("Encoding unrecognized AST node %s as opaque bool", type(node).__name__)
+        return Bool(f"opaque_{ast.dump(node)}")
+
+    def _encode_compare(
+        self, node: ast.Compare, fact_classes: dict[str, type[Fact]], z3_vars: dict[str, ExprRef]
+    ) -> BoolRef:
+        """Encode an AST comparison node as a Z3 boolean expression.
+
+        Chained comparisons (e.g., `1 < x < 10`) are encoded as a conjunction
+        of pairwise comparisons.
+
+        Args:
+            node: The comparison AST node.
+            fact_classes: Map from class name to `Fact` class.
+            z3_vars: Mutable cache of Z3 variables.
+
+        Returns:
+            A Z3 boolean expression representing the comparison.
+        """
+        # Build a list of pairwise Z3 comparisons
+        comparisons: list[BoolRef] = []
+        left = self._encode_operand(node.left, fact_classes, z3_vars)
+        for op, right_node in zip(node.ops, node.comparators, strict=False):
+            right = self._encode_operand(right_node, fact_classes, z3_vars)
+
+            if isinstance(op, ast.Eq):
+                comparisons.append(left == right)
+            elif isinstance(op, ast.NotEq):
+                comparisons.append(left != right)
+            elif isinstance(op, ast.Lt):
+                comparisons.append(left < right)
+            elif isinstance(op, ast.LtE):
+                comparisons.append(left <= right)
+            elif isinstance(op, ast.Gt):
+                comparisons.append(left > right)
+            elif isinstance(op, ast.GtE):
+                comparisons.append(left >= right)
+            else:
+                comparisons.append(Bool(f"opaque_{ast.dump(node)}"))
+
+            left = right
+
+        return And(*comparisons) if len(comparisons) > 1 else comparisons[0]
+
+    def _encode_operand(
+        self, node: ast.expr, fact_classes: dict[str, type[Fact]], z3_vars: dict[str, ExprRef]
+    ) -> ExprRef:
+        """Encode a comparison operand as a typed Z3 expression.
+
+        Args:
+            node: The operand AST node (attribute reference or literal constant).
+            fact_classes: Map from class name to `Fact` class.
+            z3_vars: Mutable cache of Z3 variables.
+
+        Returns:
+            A typed Z3 expression matching the operand's value domain.
+        """
+        # Fact attribute reference (e.g., Foo.bar)
+        if isinstance(node, ast.Attribute):
+            class_name = node.value.id if isinstance(node.value, ast.Name) else ""
+            key = f"{class_name}.{node.attr}"
+            return self._get_or_create_z3_var(key, class_name, node.attr, fact_classes, z3_vars)
+
+        # Literal constant: create a typed Z3 value
+        if isinstance(node, ast.Constant):
+            value = node.value
+            if isinstance(value, bool):
+                return BoolVal(value)
+            if isinstance(value, int):
+                return IntVal(value)
+            if isinstance(value, float):
+                return RealVal(value)
+            if isinstance(value, str):
+                return StringVal(value)
+
+        # Fall back to the general AST encoder for other node types
+        return self._encode_ast(node, fact_classes, z3_vars)
+
+    def _get_or_create_z3_var(
+        self,
+        key: str,
+        class_name: str,
+        attr_name: str,
+        fact_classes: dict[str, type[Fact]],
+        z3_vars: dict[str, ExprRef],
+    ) -> ExprRef:
+        """Return a cached Z3 variable or create and cache a new typed one.
+
+        The variable type is inferred from the `Fact` subclass field's type hint.
+        Unrecognized types fall back to `z3.Bool` with a warning.
+
+        Args:
+            key: Cache key in `"ClassName.attr"` format.
+            class_name: The `Fact` subclass name.
+            attr_name: The attribute name on the `Fact` subclass.
+            fact_classes: Map from class name to `Fact` class.
+            z3_vars: Mutable cache of Z3 variables.
+
+        Returns:
+            A typed Z3 variable for the given fact attribute.
+        """
+        if key in z3_vars:
+            return z3_vars[key]
+
+        # Resolve the attribute's type hint from the Fact subclass
+        fact_class = fact_classes.get(class_name)
+        type_hint = get_type_hints(fact_class).get(attr_name) if fact_class else None
+
+        # Create a Z3 variable with the appropriate sort
+        if type_hint is int:
+            var: ExprRef = Int(key)
+        elif type_hint is float:
+            var = Real(key)
+        elif type_hint is str:
+            var = String(key)
+        else:
+            if type_hint is not None and type_hint is not bool:
+                logger.warning("Unrecognized type %s for %s.%s; treating as Bool", type_hint, class_name, attr_name)
+            var = Bool(key)
+
+        z3_vars[key] = var
+        return var
 
 
 class DependencyGraph:
