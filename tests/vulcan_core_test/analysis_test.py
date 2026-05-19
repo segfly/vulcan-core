@@ -1,11 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2025 Latchfield Technologies http://latchfield.com
 
+from unittest.mock import MagicMock
+
 import pytest
 import yaml
 
 from vulcan_core.analysis import (
     AnalysisReport,
+    ConditionEncoder,
     CycleIssue,
     CyclePath,
     Findings,
@@ -14,6 +17,13 @@ from vulcan_core.analysis import (
     ValidationInternalError,
     ValidationResult,
 )
+from vulcan_core.conditions import AICondition, OnFactChanged, condition
+from vulcan_core.models import Fact
+
+
+class Score(Fact):
+    value: int
+    active: bool = True
 
 
 @pytest.fixture
@@ -96,3 +106,135 @@ class TestAnalysisReportYaml:
         assert parsed["analysis"]["unreachable"] == [
             {"rule_id": "abcd1234", "rule_name": "my_rule", "missing_triggers": ["Foo.x"]}
         ]
+
+
+class TestConditionEncoderSatisfiability:
+    @pytest.fixture
+    def encoder(self) -> ConditionEncoder:
+        return ConditionEncoder()
+
+    def test_satisfiable_int_comparison(self, encoder):
+        cond = condition(lambda: Score.value >= 0)
+
+        result = encoder.is_satisfiable(cond)
+
+        assert result.satisfiable is True
+        assert result.has_ai is False
+
+    def test_unsat_contradictory_int_range(self, encoder):
+        cond = condition(lambda: Score.value >= 100 and Score.value < 0)
+
+        result = encoder.is_satisfiable(cond)
+
+        assert result.satisfiable is False
+        assert result.has_ai is False
+
+    def test_satisfiable_bool_field(self, encoder):
+        cond = condition(lambda: Score.active)
+
+        result = encoder.is_satisfiable(cond)
+
+        assert result.satisfiable is True
+        assert result.has_ai is False
+
+    def test_satisfiable_inverted_bool(self, encoder):
+        cond = ~condition(lambda: Score.active)
+
+        result = encoder.is_satisfiable(cond)
+
+        assert result.satisfiable is True
+        assert result.has_ai is False
+
+    def test_unsat_bool_self_contradiction(self, encoder):
+        cond = condition(lambda: Score.active and not Score.active)
+
+        result = encoder.is_satisfiable(cond)
+
+        assert result.satisfiable is False
+        assert result.has_ai is False
+
+    def test_on_fact_changed_is_satisfiable(self, encoder):
+        cond = OnFactChanged(("Score.value",), func=lambda: True)
+
+        result = encoder.is_satisfiable(cond)
+
+        assert result.satisfiable is True
+
+    def test_compound_and_unsat(self, encoder):
+        cond = condition(lambda: Score.value > 0) & condition(lambda: Score.value < 0)
+
+        result = encoder.is_satisfiable(cond)
+
+        assert result.satisfiable is False
+
+    def test_compound_or_satisfiable(self, encoder):
+        cond = condition(lambda: Score.value > 0) | condition(lambda: Score.value < 0)
+
+        result = encoder.is_satisfiable(cond)
+
+        assert result.satisfiable is True
+
+    def test_compound_xor_satisfiable(self, encoder):
+        cond = condition(lambda: Score.value > 0) ^ condition(lambda: Score.active)
+
+        result = encoder.is_satisfiable(cond)
+
+        assert result.satisfiable is True
+
+    def test_ai_condition_has_ai_flag(self, encoder):
+        ai_cond = _make_ai_condition()
+
+        result = encoder.is_satisfiable(ai_cond)
+
+        assert result.has_ai is True
+        assert result.satisfiable is not False
+
+    def test_compound_with_ai_has_ai_flag(self, encoder):
+        cond = _make_ai_condition() & condition(lambda: Score.value > 0)
+
+        result = encoder.is_satisfiable(cond)
+
+        assert result.has_ai is True
+
+
+class TestConditionEncoderTautology:
+    @pytest.fixture
+    def encoder(self) -> ConditionEncoder:
+        return ConditionEncoder()
+
+    def test_on_fact_changed_is_tautology(self, encoder):
+        cond = OnFactChanged(("Score.value",), func=lambda: True)
+
+        result = encoder.is_tautology(cond)
+
+        assert result.is_tautology is True
+        assert result.has_ai is False
+
+    def test_disjunction_covering_all_integers_is_tautology(self, encoder):
+        cond = condition(lambda: Score.value >= 0) | condition(lambda: Score.value < 0)
+
+        result = encoder.is_tautology(cond)
+
+        assert result.is_tautology is True
+
+    def test_partial_range_is_not_tautology(self, encoder):
+        cond = condition(lambda: Score.value > 5)
+
+        result = encoder.is_tautology(cond)
+
+        assert result.is_tautology is False
+
+
+def _make_ai_condition() -> AICondition:
+    """Construct a minimal `AICondition` using mocked LangChain dependencies."""
+    mock_model = MagicMock()
+    mock_model.with_structured_output.return_value = MagicMock()
+    mock_chain = MagicMock()
+    return AICondition(
+        facts=("Score.value",),
+        chain=mock_chain,
+        model=mock_model,
+        system_template="system",
+        attachments_template="attachments",
+        inquiry="{Score.value}",
+    )
