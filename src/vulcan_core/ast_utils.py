@@ -2,6 +2,7 @@
 # Copyright 2025 Latchfield Technologies http://latchfield.com
 
 import ast
+import copy
 import inspect
 import io
 import logging
@@ -239,11 +240,14 @@ class ASTProcessor[T: Callable]:
             facts, class_to_param = self._resolve_facts(attributes, caller_globals)
 
             self.facts = tuple(facts)
+
+            # Capture the original lambda body before _transform_lambda mutates self.tree in-place via NodeTransformer
+            lambda_expr = cast("ast.Lambda", cast("ast.Expr", self.tree.body[0]).value)
+            lambda_ast_body = copy.deepcopy(lambda_expr.body)
+
             self.func = self._transform_lambda(class_to_param, caller_globals)
 
             # Build analysis metadata from the lambda body and discovered fact classes
-            lambda_expr = cast("ast.Lambda", cast("ast.Expr", self.tree.body[0]).value)
-            lambda_ast_body = lambda_expr.body
             analysis_fact_classes = {name: caller_globals[name] for name in class_to_param}
             self.analysis = AnalysisInfo(ast_body=lambda_ast_body, fact_classes=analysis_fact_classes)
 
